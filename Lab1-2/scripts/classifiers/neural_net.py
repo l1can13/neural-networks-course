@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from past.builtins import xrange
 
+
 class TwoLayerNet(object):
     """
     A two-layer fully-connected neural network. The net has an input dimension of
@@ -21,7 +22,7 @@ class TwoLayerNet(object):
     The outputs of the second fully-connected layer are the scores for each class.
     """
 
-    def __init__(self, input_size, hidden_size, output_size, std=1e-4):
+    def __init__(self, input_size, hidden_size, output_size, std=1e-4, dropout=0.0):
         """
         Initialize the model. Weights are initialized to small random values and
         biases are initialized to zero. Weights and biases are stored in the
@@ -42,8 +43,9 @@ class TwoLayerNet(object):
         self.params['b1'] = np.zeros(hidden_size)
         self.params['W2'] = std * np.random.randn(hidden_size, output_size)
         self.params['b2'] = np.zeros(output_size)
+        self.params['dropout'] = dropout
 
-    def loss(self, X, y=None, reg=0.0):
+    def loss(self, X, y=None, reg=0.0, dropout=0.0):
         """
         Compute the loss and gradients for a two layer fully connected neural
         network.
@@ -71,8 +73,6 @@ class TwoLayerNet(object):
         W2, b2 = self.params['W2'], self.params['b2']
         N, D = X.shape
 
-        # Compute the forward pass
-        scores = None
         #############################################################################
         # TODO: Perform the forward pass, computing the class scores for the input. #
         # Store the result in the scores variable, which should be an array of      #
@@ -80,7 +80,15 @@ class TwoLayerNet(object):
         #############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Compute the forward pass
+        hidden_layer = np.maximum(0, np.dot(X, W1) + b1)
+
+        # Apply dropout
+        if self.params['dropout'] > 0:
+            mask = (np.random.rand(*hidden_layer.shape) < (1 - dropout)) / (1 - dropout)
+            hidden_layer *= mask
+
+        scores = np.dot(hidden_layer, W2) + b2
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -88,8 +96,6 @@ class TwoLayerNet(object):
         if y is None:
             return scores
 
-        # Compute the loss
-        loss = None
         #############################################################################
         # TODO: Finish the forward pass, and compute the loss. This should include  #
         # both the data loss and L2 regularization for W1 and W2. Store the result  #
@@ -98,7 +104,14 @@ class TwoLayerNet(object):
         #############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Compute the loss
+        scores -= np.max(scores, axis=1, keepdims=True)
+        scores_exp = np.exp(scores)
+        probs = scores_exp / np.sum(scores_exp, axis=1, keepdims=True)
+        correct_logprobs = -np.log(probs[range(N), y])
+        data_loss = np.sum(correct_logprobs) / N
+        reg_loss = reg * (np.sum(W1 * W1) + np.sum(W2 * W2))
+        loss = data_loss + reg_loss
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -111,7 +124,22 @@ class TwoLayerNet(object):
         #############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        dscores = probs
+        dscores[range(N), y] -= 1
+        dscores /= N
+
+        grads['W2'] = np.dot(hidden_layer.T, dscores)
+        grads['b2'] = np.sum(dscores, axis=0)
+        dhidden = np.dot(dscores, W2.T)
+        dhidden[hidden_layer <= 0] = 0
+        grads['W1'] = np.dot(X.T, dhidden)
+        grads['b1'] = np.sum(dhidden, axis=0)
+
+        # Add regularization to the gradient
+        grads['W2'] += 2 * reg * W2
+        grads['b2'] += 0  # Bias does not have regularization
+        grads['W1'] += 2 * reg * W1
+        grads['b1'] += 0  # Bias does not have regularization
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -147,8 +175,6 @@ class TwoLayerNet(object):
         val_acc_history = []
 
         for it in range(num_iters):
-            X_batch = None
-            y_batch = None
 
             #########################################################################
             # TODO: Create a random minibatch of training data and labels, storing  #
@@ -156,7 +182,10 @@ class TwoLayerNet(object):
             #########################################################################
             # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-            pass
+            # Выбор индексов для мини-пакета
+            indices = np.random.choice(np.arange(num_train), batch_size, replace=True)
+            X_batch = X[indices]
+            y_batch = y[indices]
 
             # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -172,7 +201,11 @@ class TwoLayerNet(object):
             #########################################################################
             # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-            pass
+            # Update the parameters using stochastic gradient descent
+            self.params['W1'] -= learning_rate * grads['W1']
+            self.params['b1'] -= learning_rate * grads['b1']
+            self.params['W2'] -= learning_rate * grads['W2']
+            self.params['b2'] -= learning_rate * grads['b2']
 
             # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -191,9 +224,9 @@ class TwoLayerNet(object):
                 learning_rate *= learning_rate_decay
 
         return {
-          'loss_history': loss_history,
-          'train_acc_history': train_acc_history,
-          'val_acc_history': val_acc_history,
+            'loss_history': loss_history,
+            'train_acc_history': train_acc_history,
+            'val_acc_history': val_acc_history,
         }
 
     def predict(self, X):
@@ -211,14 +244,15 @@ class TwoLayerNet(object):
           the elements of X. For all i, y_pred[i] = c means that X[i] is predicted
           to have class c, where 0 <= c < C.
         """
-        y_pred = None
-
         ###########################################################################
         # TODO: Implement this function; it should be VERY simple!                #
         ###########################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Predict the labels for the data points
+        hidden_layer = np.maximum(0, np.dot(X, self.params['W1']) + self.params['b1'])
+        scores = np.dot(hidden_layer, self.params['W2']) + self.params['b2']
+        y_pred = np.argmax(scores, axis=1)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
